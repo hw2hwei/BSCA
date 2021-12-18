@@ -38,7 +38,7 @@ def return_classlist(image_list):
 
 class Imagelists_VISDA(object):
     def __init__(self, image_list, root="./data/multi/",
-                 transform=None, strong_transform=None, target_transform=None, test=False):
+                 transform=None, strong_transform=None, target_transform=None):
         imgs, labels = make_dataset_fromlist(image_list)
         self.imgs = imgs
         self.labels = labels
@@ -47,7 +47,6 @@ class Imagelists_VISDA(object):
         self.strong_transform = strong_transform
         self.loader = pil_loader
         self.root = root
-        self.test = test
 
     def __getitem__(self, index):
         """
@@ -65,10 +64,10 @@ class Imagelists_VISDA(object):
         if self.transform is not None:
             img = self.transform(img)
 
-        if not self.test:
+        if self.strong_transform:
             return img, target, img_bar
         else:
-            return img, target, self.imgs[index]
+            return img, target
 
     def __len__(self):
         return len(self.imgs)

@@ -4,10 +4,10 @@ from __future__ import print_function
 import argparse
 import os
 import torch
-from model.resnet import resnet34, resnet50
 from torch.autograd import Variable
 from tqdm import tqdm
-from model.basenet import AlexNetBase, VGGBase, Predictor, Predictor_deep
+from models.resnet import resnet34
+from models.basenet import Efficientnet_Base, GoogLeNet_Base, Predictor, Predictor_deep, Predictor_DANN, Predictor_APE, Predictor_deep_APE, Predictor_deep_DANN
 from utils.return_dataset import return_dataset_test
 from utils.tSNE import tSNE
 import torch.nn.functional as F
@@ -18,12 +18,13 @@ import numpy as np
 parser = argparse.ArgumentParser(description='Visda Classification')
 parser.add_argument('--T', type=float, default=0.05, metavar='T',
                     help='temperature (default: 0.05)')
-parser.add_argument('--step', type=int, default=5000, metavar='step',
-                    help='loading step')
+parser.add_argument('--resume_step', type=int, default=0, metavar='N',
+                    help='maximum number of iterations '
+                         'to train (default: 50000)')
 parser.add_argument('--checkpath', type=str, default='./save_model_ssda',
                     help='dir to save checkpoint')
 parser.add_argument('--method', type=str, default='MME',
-                    choices=['S+T', 'ENT', 'MME', 'PL', 'DSCA'],
+                    choices=['S+T', 'ENT', 'MME', 'PL', 'DANN', 'APE', 'DSCA'],
                     help='MME is proposed method, ENT is entropy minimization,'
                          'S+T is training only on labeled examples')
 parser.add_argument('--output', type=str, default='./output.txt',
@@ -35,7 +36,7 @@ parser.add_argument('--source', type=str, default='Real', metavar='B',
 parser.add_argument('--target', type=str, default='Product', metavar='B',
                     help='board dir')
 parser.add_argument('--dataset', type=str, default='office_home',
-                    choices=['multi_all', 'office_home'],
+                    choices=['multi', 'office_home', 'office'],
                     help='the name of dataset, multi is large scale dataset')
 parser.add_argument('--root', type=str, default='../Datasets',
                     help='source domain')
@@ -49,28 +50,35 @@ source_loader, target_loader_unl, class_list = return_dataset_test(args)
 
 use_gpu = torch.cuda.is_available()
 
-
 if args.net == 'resnet34':
     extractor = resnet34()
     inc = 512
-elif args.net == 'resnet50':
-    extractor = resnet50()
-    inc = 2048
-elif args.net == "alexnet":
-    extractor = AlexNetBase()
-    inc = 4096
-elif args.net == "vgg":
-    extractor = VGGBase()
-    inc = 4096
+elif args.net == "efficientnet":
+    extractor = Efficientnet_Base()
+    inc = 1280
+elif args.net == "googlenet":
+    extractor = GoogLeNet_Base()
+    inc = 1024
 else:
     raise ValueError('Model cannot be recognized.')
 
-
-if "resnet" in args.net:
-    clasifier = Predictor_deep(num_class=len(class_list),
-                        inc=inc)
+if 'resnet' in args.net:
+    clasifier = Predictor_deep(num_class=len(class_list), inc=inc)    
+    if args.method == 'DANN':
+        clasifier = Predictor_deep_DANN(num_class=len(class_list), inc=inc,
+                                    temp=args.T)
+    elif args.method == 'APE':
+        clasifier = Predictor_deep_APE(num_class=len(class_list), inc=inc,
+                                    temp=args.T)
 else:
-    clasifier = Predictor(num_class=len(class_list), inc=inc, cosine=True, temp=args.T)
+    clasifier = Predictor(num_class=len(class_list), inc=inc)    
+    if args.method == 'DANN':
+        clasifier = Predictor_DANN(num_class=len(class_list), inc=inc,
+                                    temp=args.T)
+    elif args.method == 'APE':
+        clasifier = Predictor_APE(num_class=len(class_list), inc=inc,
+                                    temp=args.T)
+
 extractor.cuda()
 clasifier.cuda()
 extractor_checkpath = os.path.join(args.checkpath,
@@ -84,9 +92,9 @@ clasifier_checkpath = os.path.join(args.checkpath,
                                    format(args.dataset, args.net, args.method, 
                                           args.source, args.target))
 extractor_checkpath = extractor_checkpath \
-                      .replace('resume_step', str(args.step))
+                      .replace('resume_step', str(args.resume_step))
 clasifier_checkpath = clasifier_checkpath \
-                      .replace('resume_step', str(args.step))
+                      .replace('resume_step', str(args.resume_step))
 extractor.load_state_dict(torch.load(extractor_checkpath))
 clasifier.load_state_dict(torch.load(clasifier_checkpath))
 
@@ -114,7 +122,12 @@ def eval(source_loader, target_loader, output_file="output.txt"):
                 gt_labels.resize_(data[1].size()).copy_(data[1])
                 paths = data[2]
                 feat = extractor(im_data)
-                output = clasifier(feat)
+                if args.method == 'APE':
+                    output = clasifier(feat)[1]
+                elif args.method == 'DANN':
+                    output = clasifier(feat)[0]
+                else:
+                    output = clasifier(feat)                
                 size += im_data.size(0)
                 pred = output.max(1)[1]
                 output = F.softmax(output, dim=1)
@@ -128,7 +141,12 @@ def eval(source_loader, target_loader, output_file="output.txt"):
                 gt_labels.resize_(data[1].size()).copy_(data[1])
                 paths = data[2]
                 feat = extractor(im_data)
-                output = clasifier(feat)
+                if args.method == 'APE':
+                    output = clasifier(feat)[1]
+                elif args.method == 'DANN':
+                    output = clasifier(feat)[0]
+                else:
+                    output = clasifier(feat)                
                 size += im_data.size(0)
                 pred = output.max(1)[1]
                 output = F.softmax(output, dim=1)
@@ -150,14 +168,13 @@ def eval(source_loader, target_loader, output_file="output.txt"):
 
     len_s = feat_s.shape[0]
     png_path = args.dataset + '_' + args.source + '_' + args.target + '_'  \
-             + args.net + '_' + args.method + '_' + str(args.step) + '_feat.png'
+             + args.net + '_' + args.method + '_' + str(args.resume_step) + '_feat.png'
     png_path = os.path.join('tSNE', png_path)
     tSNE(feat, labl, png_path, len_s, n_classes=len(class_list))
-    tSNE(prob, labl, png_path.replace('feat', 'prob'), len_s, n_classes=len(class_list))
-
+    # tSNE(prob, labl, png_path.replace('feat', 'prob'), len_s, n_classes=len(class_list))
 
 eval(source_loader, target_loader_unl, output_file="%s_%s_%s.txt" % (args.method, args.net,
-                                                                     args.step))
+                                                                     args.resume_step))
 
 
 
