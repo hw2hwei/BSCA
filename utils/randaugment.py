@@ -218,3 +218,16 @@ class RandAugmentMC(object):
                 img = op(img, v=v, max_v=max_v, bias=bias)
         img = CutoutAbs(img, 16)
         return img
+
+
+class ColorChange(object):
+    def __init__(self):
+        a = 1
+
+    def __call__(self, img):
+        idx = [0,1,2]
+        random.shuffle(idx)
+        img = np.array(img)
+        img = img[:,:,idx]
+        img = Image.fromarray(np.uint8(img))
+        return img

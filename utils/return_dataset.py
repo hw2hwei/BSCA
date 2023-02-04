@@ -18,29 +18,29 @@ class ResizeImage():
 
 
 def return_dataset(args):
-    base_path = './data/txt/%s' % args.dataset
-    root = os.path.join(args.root, args.dataset)
+    root_s = os.path.join(args.root, args.source, 'splits')
+    root_t = os.path.join(args.root, args.target, 'splits')
     image_set_file_s = \
-        os.path.join(base_path,
-                     'labeled_source_images_' +
+        os.path.join(root_s,
+                     'source_' +
                      args.source + '.txt')
     image_set_file_t = \
-        os.path.join(base_path,
-                     'labeled_target_images_' +
-                     args.target + '_%d.txt' % (args.sample_per_class))
+        os.path.join(root_t,
+                     'target_labeled_' + 
+                     str(args.sample_per_class) + '_' +
+                     args.target + '.txt')
+    image_set_file_t_unl = \
+        os.path.join(root_t,
+                     'target_unlabeled_' +
+                     str(args.sample_per_class) + '_' +
+                     args.target + '.txt')
     image_set_file_t_val = \
-        os.path.join(base_path,
-                     'validation_target_images_' +
-                     args.target + '_3.txt')
-    image_set_file_unl = \
-        os.path.join(base_path,
-                     'unlabeled_target_images_' +
-                     args.target + '_%d.txt' % (args.sample_per_class))
+        os.path.join(root_t,
+                     'target_validate_' +
+                     str(args.sample_per_class) + '_' +
+                     args.target + '.txt')
 
-    if args.net == 'alexnet':
-        crop_size = 227
-    else:
-        crop_size = 224
+    crop_size = 224
     data_transforms = {
         'train': transforms.Compose([
             ResizeImage(256),
@@ -49,10 +49,9 @@ def return_dataset(args):
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ]),
-        'val': transforms.Compose([
+        'test': transforms.Compose([
             ResizeImage(256),
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomCrop(crop_size),
+            transforms.CenterCrop(crop_size),
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ]),
@@ -64,33 +63,22 @@ def return_dataset(args):
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
         ]),
-        'test': transforms.Compose([
-            ResizeImage(256),
-            transforms.CenterCrop(crop_size),
-            transforms.ToTensor(),
-            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-        ]),
     }
-    source_dataset = Imagelists_VISDA(image_set_file_s, root=root,
+    source_dataset = Imagelists_VISDA(image_set_file_s, root=args.root,
                                       transform=data_transforms['train'],
-                                      strong_transform=data_transforms['strong'])
-    target_dataset = Imagelists_VISDA(image_set_file_t, root=root,
+                                          strong_transform=data_transforms['strong'])
+    target_dataset = Imagelists_VISDA(image_set_file_t, root=args.root,
                                       transform=data_transforms['train'],
-                                     strong_transform=data_transforms['strong'])
-    target_dataset_unl = Imagelists_VISDA(image_set_file_unl, root=root,
+                                          strong_transform=data_transforms['strong'])
+    target_dataset_unl = Imagelists_VISDA(image_set_file_t_unl, root=args.root,
                                           transform=data_transforms['train'],
                                           strong_transform=data_transforms['strong'])
-    target_dataset_val = Imagelists_VISDA(image_set_file_t_val, root=root,
-                                          transform=data_transforms['val'],
-                                          strong_transform=data_transforms['strong'])
-    target_dataset_test = Imagelists_VISDA(image_set_file_unl, root=root,
-                                           transform=data_transforms['test'], test=True)
+    target_dataset_val = Imagelists_VISDA(image_set_file_t_val, root=args.root,
+                                          transform=data_transforms['test'])
     class_list = return_classlist(image_set_file_s)
     print("%d classes in this dataset" % len(class_list))
-    if args.net == 'alexnet':
-        bs = 32
-    else:
-        bs = 24
+
+    bs = 24
     source_loader = torch.utils.data.DataLoader(source_dataset, batch_size=bs,
                                                 num_workers=args.n_workers, 
                                                 shuffle=True, drop_last=True)
@@ -101,31 +89,29 @@ def return_dataset(args):
                                     shuffle=True, drop_last=True)
     target_loader_unl = \
         torch.utils.data.DataLoader(target_dataset_unl,
-                                    batch_size=bs * 2, num_workers=args.n_workers,
+                                    batch_size=bs*2, num_workers=args.n_workers,
                                     shuffle=True, drop_last=True)
     target_loader_val = \
         torch.utils.data.DataLoader(target_dataset_val,
-                                    batch_size=min(bs,
-                                                   len(target_dataset_val)),
+                                    batch_size=bs*2,
                                     num_workers=args.n_workers,
                                     shuffle=True, drop_last=False)
-    target_loader_test = \
-        torch.utils.data.DataLoader(target_dataset_test,
-                                    batch_size=bs * 2, num_workers=args.n_workers,
-                                    shuffle=True, drop_last=False)
-    return source_loader, target_loader, target_loader_unl, \
-        target_loader_val, target_loader_test, class_list
+    return source_loader, target_loader, target_loader_unl, target_loader_val, class_list
 
 
 def return_dataset_test(args):
-    base_path = args.root + '/txt/%s' % args.dataset
-    root = os.path.join(args.root, args.dataset)
-    image_set_file_s = os.path.join(base_path,
-                                     'labeled_source_images_' +
-                                     args.source + '.txt')
-    image_set_file_test = os.path.join(base_path,
-                                       'unlabeled_target_images_' +
-                                       args.target + '_%d.txt' % (args.sample_per_class))
+    root_s = os.path.join(args.root, args.source, 'splits')
+    root_t = os.path.join(args.root, args.target, 'splits')
+    image_set_file_s = \
+        os.path.join(root_s,
+                     'source_' +
+                     args.source + '.txt')
+    image_set_file_test = \
+        os.path.join(root_t,
+                     'target_unlabeled_' +
+                     str(args.sample_per_class) + '_' +
+                     args.target + '.txt')
+
     print ('source: ', image_set_file_s)
     print ('target: ', image_set_file_test)
 
@@ -141,18 +127,13 @@ def return_dataset_test(args):
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ]),
     }
-    source_dataset = Imagelists_VISDA(image_set_file_s, root=root,
-                                        transform=data_transforms['test'],
-                                        test=True)
-    target_dataset_unl = Imagelists_VISDA(image_set_file_test, root=root,
-                                          transform=data_transforms['test'],
-                                          test=True)
+    source_dataset = Imagelists_VISDA(image_set_file_s, root=args.root,
+                                        transform=data_transforms['test'])
+    target_dataset_unl = Imagelists_VISDA(image_set_file_test, root=args.root,
+                                          transform=data_transforms['test'])
     class_list = return_classlist(image_set_file_s)
     print("%d classes in this dataset" % len(class_list))
-    if args.net == 'alexnet':
-        bs = 64
-    else:
-        bs = 24
+    bs = 64
     source_loader = \
         torch.utils.data.DataLoader(source_dataset,
                                     batch_size=bs * 2, num_workers=8,

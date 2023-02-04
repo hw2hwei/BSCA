@@ -23,3 +23,10 @@ def save_checkpoint(state, is_best, checkpoint='checkpoint',
     if is_best:
         shutil.copyfile(filepath, os.path.join(checkpoint,
                                                'model_best.pth.tar'))
+
+def one_hot(labl, n_classes):
+    labl = labl.view(-1, 1)
+    labl_ = torch.zeros(labl.size(0), n_classes)
+    labl_ = labl_.scatter_(1, labl.type(torch.LongTensor), 1).cuda().detach()
+
+    return labl_
