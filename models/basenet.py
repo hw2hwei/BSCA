@@ -3,6 +3,7 @@ import torch.nn.functional as F
 import torch
 import torch.nn as nn
 from torch.autograd import Function
+from models.googlenet import googlenet
 
 
 class ReverseLayerF(Function):
@@ -38,44 +39,53 @@ def l2_norm(input):
     return output
 
 
-class AlexNetBase(nn.Module):
-    def __init__(self, pret=True):
-        super(AlexNetBase, self).__init__()
-        model_alexnet = models.alexnet(pretrained=pret)
-        self.features = nn.Sequential(*list(model_alexnet.
-                                            features._modules.values())[:])
-        self.classifier = nn.Sequential()
-        for i in range(6):
-            self.classifier.add_module("classifier" + str(i),
-                                       model_alexnet.classifier[i])
-        self.__in_features = model_alexnet.classifier[6].in_features
-
-    def forward(self, x):
-        x = self.features(x)
-        x = x.view(x.size(0), 256 * 6 * 6)
-        x = self.classifier(x)
-        return x
-
-    def output_num(self):
-        return self.__in_features
-
-
-class VGGBase(nn.Module):
+class Efficientnet_B0_Base(nn.Module):
     def __init__(self, pret=True, no_pool=False):
-        super(VGGBase, self).__init__()
-        vgg16 = models.vgg16(pretrained=pret)
-        self.classifier = nn.Sequential(*list(vgg16.classifier.
-                                              _modules.values())[:-1])
-        self.features = nn.Sequential(*list(vgg16.features.
-                                            _modules.values())[:])
-        self.s = nn.Parameter(torch.FloatTensor([10]))
+        super(Efficientnet_B0_Base, self).__init__()
+        efficientnet = models.efficientnet_b0(pretrained=pret)
+        self.features = nn.Sequential(*list(efficientnet.
+                                            features._modules.values())[:])
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
 
     def forward(self, x):
         x = self.features(x)
-        x = x.view(x.size(0), 7 * 7 * 512)
-        x = self.classifier(x)
+        x = self.avgpool(x).view(x.size(0), -1)
         return x
 
+class Efficientnet_B4_Base(nn.Module):
+    def __init__(self, pret=True, no_pool=False):
+        super(Efficientnet_B4_Base, self).__init__()
+        efficientnet = models.efficientnet_b4(pretrained=pret)
+        self.features = nn.Sequential(*list(efficientnet.
+                                            features._modules.values())[:])
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.avgpool(x).view(x.size(0), -1)
+        return x
+
+class GoogLeNet_Base(nn.Module):
+    def __init__(self, pret=True, no_pool=False):
+        super(GoogLeNet_Base, self).__init__()
+        self.features = googlenet(pretrained=pret)
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.avgpool(x).view(x.size(0), -1)
+        return x
+
+class VGG16_Base(nn.Module):
+    def __init__(self, pret=True, no_pool=False):
+        super(VGG16_Base, self).__init__()
+        self.features = models.vgg16(pretrained=pret)
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+
+    def forward(self, x):
+        x = self.features.features(x)
+        x = self.avgpool(x).view(x.size(0), -1)
+        return x
 
 class Predictor(nn.Module):
     def __init__(self, num_class=64, inc=4096, temp=0.05):
@@ -88,8 +98,8 @@ class Predictor(nn.Module):
         if reverse:
             x = grad_reverse(x, eta)
         x = F.normalize(x)
-        x_out = self.fc(x) / self.temp
-        return x_out
+        pred = self.fc(x) / self.temp
+        return x, pred
 
 
 class Predictor_deep(nn.Module):
@@ -100,26 +110,68 @@ class Predictor_deep(nn.Module):
         self.num_class = num_class
         self.temp = temp
 
-    def forward(self, x, reverse=False, eta=0.1):
+    def forward(self, x, reverse=False, eta=1.0):
         x = self.fc1(x)
         if reverse:
             x = grad_reverse(x, eta)
         x = F.normalize(x)
         x_out = self.fc2(x) / self.temp
-        return x_out
+        return x, x_out
 
 
-class Discriminator(nn.Module):
-    def __init__(self, inc=4096):
-        super(Discriminator, self).__init__()
-        self.fc1_1 = nn.Linear(inc, 512)
-        self.fc2_1 = nn.Linear(512, 512)
-        self.fc3_1 = nn.Linear(512, 1)
+class Predictor_DANN(nn.Module):
+    def __init__(self, num_class=64, inc=512, temp=0.05):
+        super(Predictor_DANN, self).__init__()
+        self.fc_cls = nn.Linear(inc, num_class, bias=False)
+        self.fc_dmn = nn.Linear(inc, 2, bias=False)
+        self.num_class = num_class
+        self.temp = temp
 
     def forward(self, x, reverse=True, eta=1.0):
+        x = F.normalize(x)
+        reverse_x = grad_reverse(x, eta)
+        out_pred = self.fc_cls(x) / self.temp
+        out_domn = self.fc_dmn(reverse_x)
+        return out_pred, out_domn
+
+
+class Predictor_deep_DANN(nn.Module):
+    def __init__(self, num_class=64, inc=512, temp=0.05):
+        super(Predictor_deep_DANN, self).__init__()
+        self.fc = nn.Linear(inc, 512)
+        self.fc_cls = nn.Linear(512, num_class, bias=False)
+        self.fc_dmn = nn.Linear(512, 2, bias=False)
+        self.num_class = num_class
+        self.temp = temp
+
+
+class Predictor_APE(nn.Module):
+    def __init__(self, num_class=64, inc=4096, temp=0.05):
+        super(Predictor_APE, self).__init__()
+        self.fc= nn.Linear(inc, num_class, bias=False)
+        self.num_class = num_class
+        self.temp = temp
+
+    def forward(self, x, reverse=False, eta=1.0):
         if reverse:
             x = grad_reverse(x, eta)
-        x = F.relu(self.fc1_1(x))
-        x = F.relu(self.fc2_1(x))
-        x_out = F.sigmoid(self.fc3_1(x))
-        return x_out
+        x = F.normalize(x)
+        x_out = self.fc(x) / self.temp
+        return x, x_out
+
+
+class Predictor_deep_APE(nn.Module):
+    def __init__(self, num_class=64, inc=4096, temp=0.05):
+        super(Predictor_deep_APE, self).__init__()
+        self.fc1 = nn.Linear(inc, 512)
+        self.fc2 = nn.Linear(512, num_class, bias=False)
+        self.num_class = num_class
+        self.temp = temp
+
+    def forward(self, x, reverse=False, eta=1.0):
+        x = self.fc1(x)
+        if reverse:
+            x = grad_reverse(x, eta)
+        x = F.normalize(x)
+        x_out = self.fc2(x) / self.temp
+        return x, x_out
