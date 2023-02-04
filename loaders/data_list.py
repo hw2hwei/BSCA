@@ -61,11 +61,12 @@ class Imagelists_VISDA(object):
         img = self.loader(path)
         if self.strong_transform  is not None:
             img_bar = self.strong_transform(img)
+            img_bar2 = self.strong_transform(img)
         if self.transform is not None:
             img = self.transform(img)
 
         if self.strong_transform:
-            return img, target, img_bar
+            return img, target, img_bar, img_bar2
         else:
             return img, target
 
