@@ -1,4 +1,4 @@
-# Data Set Processing
+# Dataset Processing
 Please separate the dataset into source set, labeled target set, and unlabeled target set.  
 
 # training for BSCA
